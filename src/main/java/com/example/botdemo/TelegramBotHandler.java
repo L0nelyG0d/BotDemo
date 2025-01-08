@@ -46,34 +46,10 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
         return botUsername;
     }
 
-    public static void disableSSLVerification() {
-        try {
-            TrustManager[] trustAllCerts = new TrustManager[]{
-                    new X509TrustManager() {
-                        public X509Certificate[] getAcceptedIssuers() {
-                            return null;
-                        }
 
-                        public void checkClientTrusted(X509Certificate[] certs, String authType) {
-                        }
-
-                        public void checkServerTrusted(X509Certificate[] certs, String authType) {
-                        }
-                    }
-            };
-
-            SSLContext sc = SSLContext.getInstance("TLS");
-            sc.init(null, trustAllCerts, new SecureRandom());
-            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
-            HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
 
     @Override
     public void onUpdateReceived(Update update) {
-        disableSSLVerification();
         if (update.hasMessage() && update.getMessage().hasText()) {
             String chatId = update.getMessage().getChatId().toString();
             String messageText = update.getMessage().getText();
@@ -105,7 +81,15 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
                     sendMessage(chatId, "Please log in first using /login <username> <password>.");
                 }
             } else if (messageText.equalsIgnoreCase("yes")) {
-                loginToPortal(chatId, "your_sdu_username", "your_sdu_password");
+                String[] parts = messageText.split(" ");
+                if (parts.length == 3) {
+                    String username = parts[1];
+                    String password = parts[2];
+                    loginToPortal(chatId, username, password);
+                }
+                else {
+                    sendMessage(chatId, "Invalid format. Please provide username and password.");
+                }
             } else if (messageText.equalsIgnoreCase("no")) {
                 sendMessage(chatId, "Alright! Let me know if you need anything else.");
             } else {
@@ -179,7 +163,7 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
         return attendanceInfo.toString();
     }
     private void loginToPortal(String chatId, String portalUsername, String portalPassword) {
-        disableSSLVerification();
+
         try {
             Connection.Response loginResponse = Jsoup.connect("https://my.sdu.edu.kz/index.php")
                     .data("username", portalUsername)
