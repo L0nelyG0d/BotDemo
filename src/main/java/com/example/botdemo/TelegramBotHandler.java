@@ -1,10 +1,8 @@
 package com.example.botdemo;
-import javax.net.ssl.*;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 
 import com.example.botdemo.repository.UserRepository;
-import com.example.botdemo.User;
+import org.jsoup.Connection;
+import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -15,8 +13,6 @@ import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
-import org.jsoup.Connection;
-import org.jsoup.Jsoup;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -34,7 +30,7 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
     @Value("${telegram.bot.username}")
     private String botUsername;
 
-    private Map<String, String> sessionCookies;
+    private Map<String, String> sessionCookies = new HashMap<>();
 
     @Override
     public String getBotToken() {
@@ -46,8 +42,6 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
         return botUsername;
     }
 
-
-
     @Override
     public void onUpdateReceived(Update update) {
         if (update.hasMessage() && update.getMessage().hasText()) {
@@ -55,127 +49,113 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
             String messageText = update.getMessage().getText();
 
             if (messageText.equalsIgnoreCase("/start")) {
-                sendMessage(chatId, "Welcome to the bot! Please choose:\n/register <username> <password>\n/login <username> <password>\n/attendance to view your attendance.");
-            } else if (messageText.startsWith("/register")) {
-                String[] parts = messageText.split(" ");
-                if (parts.length == 3) {
-                    String username = parts[1];
-                    String password = parts[2];
-                    handleRegistration(chatId, username, password);
-                } else {
-                    sendMessage(chatId, "Usage: /register <username> <password>");
-                }
+                sendMessage(chatId, "Welcome to the bot! Use /login <username> <password> to log in and /schedule to view your schedule.");
             } else if (messageText.startsWith("/login")) {
                 String[] parts = messageText.split(" ");
                 if (parts.length == 3) {
                     String username = parts[1];
                     String password = parts[2];
-                    handleLogin(chatId, username, password);
+                    login(chatId, username, password);
                 } else {
                     sendMessage(chatId, "Usage: /login <username> <password>");
                 }
-            } else if (messageText.equalsIgnoreCase("/attendance")) {
+            } else if (messageText.equalsIgnoreCase("/schedule")) {
                 if (sessionCookies != null && !sessionCookies.isEmpty()) {
-                    getAttendance(chatId); // Fetch attendance
+                    fetchSchedule(chatId);
                 } else {
                     sendMessage(chatId, "Please log in first using /login <username> <password>.");
                 }
-            } else if (messageText.equalsIgnoreCase("yes")) {
-                String[] parts = messageText.split(" ");
-                if (parts.length == 3) {
-                    String username = parts[1];
-                    String password = parts[2];
-                    loginToPortal(chatId, username, password);
-                }
-                else {
-                    sendMessage(chatId, "Invalid format. Please provide username and password.");
-                }
-            } else if (messageText.equalsIgnoreCase("no")) {
-                sendMessage(chatId, "Alright! Let me know if you need anything else.");
             } else {
-                sendMessage(chatId, "Unknown command. Use /register, /login, or /attendance.");
+                sendMessage(chatId, "Unknown command. Use /login or /schedule.");
             }
         }
     }
 
-    private void handleRegistration(String chatId, String username, String password) {
-        if (userRepository.findByUsername(username) != null) {
-            sendMessage(chatId, "Username already exists. Please choose a different one.");
-            return;
-        }
-
-        User user = new User();
-        user.setUsername(username);
-        user.setPassword(password); // Ideally, hash the password before saving.
-        userRepository.save(user);
-
-        sendMessage(chatId, "Registration successful. You can now log in with /login.");
-    }
-
-    private void handleLogin(String chatId, String username, String password) {
-        User user = userRepository.findByUsername(username);
-        if (user != null && user.getPassword().equals(password)) {
-            sendMessage(chatId, "Login successful. Welcome, " + username + "!");
-            sendMessage(chatId, "Would you like to log in to your SDU account? Reply 'yes' or 'no'.");
-        } else {
-            sendMessage(chatId, "Invalid username or password.");
-        }
-    }
-
-    public void getAttendance(String chatId) {
+    private void login(String chatId, String username, String password) {
         try {
-            String attendanceUrl = "https://my.sdu.edu.kz/index.php?mod=ejurnal";
+            String loginUrl = "https://my.sdu.edu.kz/loginAuth.php";
 
-            Connection.Response response = Jsoup.connect(attendanceUrl)
-                    .cookies(sessionCookies)
-                    .method(Connection.Method.GET)
-                    .execute();
-
-            String responseBody = response.body();
-            String attendanceInfo = parseAttendanceHtml(responseBody);
-
-            sendMessage(chatId, "Your attendance:\n" + attendanceInfo);
-        } catch (IOException e) {
-            e.printStackTrace();
-            sendMessage(chatId, "Failed to retrieve attendance information. Please try again later.");
-        }
-
-    }
-
-    private String parseAttendanceHtml(String responseBody) {
-        Document doc = Jsoup.parse(responseBody);
-
-        Elements rows = doc.select("table tr");
-
-        StringBuilder attendanceInfo = new StringBuilder();
-
-        for(Element row : rows) {
-            Elements cell = row.select("td");
-            if(!cell.isEmpty()){
-                String code = cell.get(0).text();
-                String className = cell.get(1).text();
-                String attendance = cell.get(cell.size() - 1).text();
-                attendanceInfo.append("Code: ").append(code)
-                        .append(", Course: ").append(className)
-                        .append(", Absence: ").append(attendance).append("\n");
-            }
-        }
-        return attendanceInfo.toString();
-    }
-    private void loginToPortal(String chatId, String portalUsername, String portalPassword) {
-
-        try {
-            Connection.Response loginResponse = Jsoup.connect("https://my.sdu.edu.kz/index.php")
-                    .data("username", portalUsername)
-                    .data("password", portalPassword)
+            Connection.Response loginResponse = Jsoup.connect(loginUrl)
+                    .data("username", username)
+                    .data("password", password)
+                    .data("modstring", "")
+                    .data("LogIn", "Log in")
                     .method(Connection.Method.POST)
                     .execute();
+
             sessionCookies = loginResponse.cookies();
-            sendMessage(chatId, "Successfully logged in to your SDU portal!");
+            System.out.println("Login successful. Cookies: " + sessionCookies);
+
+            if (!sessionCookies.isEmpty()) {
+                sendMessage(chatId, "Successfully logged in!");
+            } else {
+                sendMessage(chatId, "Login failed. Please check your credentials.");
+            }
         } catch (IOException e) {
             e.printStackTrace();
-            sendMessage(chatId, "Failed to log in to your SDU portal. Please check your credentials or try again later.");
+            sendMessage(chatId, "Login failed due to an error. Please try again.");
         }
+    }
+
+    private void fetchSchedule(String chatId) {
+        try {
+            String scheduleUrl = "https://my.sdu.edu.kz/index.php?mod=course_reg"; // URL for schedule
+            Document document = Jsoup.connect(scheduleUrl)
+                    .cookies(sessionCookies)
+                    .get();
+
+            String scheduleInfo = parseScheduleHtml(document);
+            if (!scheduleInfo.isEmpty()) {
+                sendMessage(chatId, "Your schedule:\n" + scheduleInfo);
+            } else {
+                sendMessage(chatId, "No schedule information found.");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            sendMessage(chatId, "Failed to retrieve schedule. Please try again.");
+        }
+    }
+
+    private String parseScheduleHtml(Document document) {
+        // Map to hold schedule data organized by day
+        Map<String, StringBuilder> scheduleByDay = new HashMap<>();
+        String[] days = {"Mo", "Tu", "We", "Th", "Fr", "Sa"};
+
+        // Initialize the map with empty builders for each day
+        for (String day : days) {
+            scheduleByDay.put(day, new StringBuilder(day + ":\n"));
+        }
+
+        // Find the schedule rows
+        Elements timeRows = document.select("tr[align=center]");
+
+        for (Element row : timeRows) {
+            // Extract the time slot (e.g., "08:30\n09:20")
+            Element timeCell = row.selectFirst("td[style]");
+            String timeSlot = timeCell != null ? timeCell.text().replace("\n", " - ") : "";
+
+            // Extract cells for each day
+            Elements dayCells = row.select("td.clsTd");
+
+            for (int i = 1; i < dayCells.size(); i++) { // Start from index 1 to skip the time slot column
+                String day = days[i - 1];
+                Element cell = dayCells.get(i);
+                Element courseDiv = cell.selectFirst("div.inbasket");
+
+                if (courseDiv != null) {
+                    String courseDetails = courseDiv.text().trim();
+                    scheduleByDay.get(day).append("  ").append(timeSlot).append(": ").append(courseDetails).append("\n");
+                }
+            }
+        }
+
+        // Combine all schedules by day into a single string
+        StringBuilder sortedSchedule = new StringBuilder();
+        for (String day : days) {
+            sortedSchedule.append(scheduleByDay.get(day).toString()).append("\n");
+        }
+
+        return sortedSchedule.toString();
     }
 
     private void sendMessage(String chatId, String text) {
