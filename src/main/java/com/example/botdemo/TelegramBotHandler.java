@@ -49,7 +49,7 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
             String messageText = update.getMessage().getText();
 
             if (messageText.equalsIgnoreCase("/start")) {
-                sendMessage(chatId, "Welcome to the bot! Use /login <username> <password> to log in and /schedule to view your schedule.");
+                sendMessage(chatId, "Welcome to the bot! Use /login <username> <password> to log in and /schedule to view your schedule or /attendance to see attendance.");
             } else if (messageText.startsWith("/login")) {
                 String[] parts = messageText.split(" ");
                 if (parts.length == 3) {
