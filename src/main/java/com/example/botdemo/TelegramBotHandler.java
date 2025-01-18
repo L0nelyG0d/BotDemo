@@ -62,11 +62,20 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
             } else if (messageText.equalsIgnoreCase("/schedule")) {
                 if (sessionCookies != null && !sessionCookies.isEmpty()) {
                     fetchSchedule(chatId);
+                }
+                else {
+                    sendMessage(chatId, "Please log in first using /login <username> <password>.");
+                }
+            }
+            else if (messageText.equalsIgnoreCase("/attendance")) {
+                if (sessionCookies != null && !sessionCookies.isEmpty()) {
+                    fetchAttendance(chatId);
                 } else {
                     sendMessage(chatId, "Please log in first using /login <username> <password>.");
                 }
-            } else {
-                sendMessage(chatId, "Unknown command. Use /login or /schedule.");
+            }
+            else {
+                sendMessage(chatId, "Unknown command. Use /login or /schedule or /attendance.");
             }
         }
     }
@@ -97,6 +106,58 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
         }
     }
 
+    private String parseAttendanceHtml(Document document) {
+        StringBuilder attendanceInfo = new StringBuilder();
+
+        Elements rows = document.select("tr[bgcolor=white], tr[bgcolor=#f9f9f9]");
+
+        for (Element row : rows) {
+            try {
+                Elements cells = row.select("td");
+
+                if (cells.size() > 7) {
+                    String courseCode = cells.get(1).text().trim();
+
+                    Element courseNameLabel = cells.get(2).selectFirst("label");
+                    String courseName = courseNameLabel != null ? courseNameLabel.text().trim() : "Unknown";
+
+                    Element attendanceDiv = cells.get(9).selectFirst("div[title]");
+                    String attendance = attendanceDiv != null ? attendanceDiv.attr("title").trim() : "N/A";
+
+                    attendanceInfo.append("Course Code: ").append(courseCode)
+                            .append(", Name: ").append(courseName)
+                            .append(", Attendance: ").append(attendance).append("\n");
+                }
+            } catch (Exception e) {
+                System.err.println("Error parsing row: " + row.html());
+                e.printStackTrace();
+            }
+        }
+
+        return attendanceInfo.toString();
+    }
+
+    private void fetchAttendance(String chatId) {
+        try {
+            String attendanceUrl = "https://my.sdu.edu.kz/index.php?mod=ejurnal";
+
+            Document document = Jsoup.connect(attendanceUrl)
+                    .cookies(sessionCookies)
+                    .get();
+
+            String attendanceInfo = parseAttendanceHtml(document);
+
+            if (!attendanceInfo.isEmpty()) {
+                sendMessage(chatId, "Your attendance:\n" + attendanceInfo);
+            } else {
+                sendMessage(chatId, "No attendance information found.");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            sendMessage(chatId, "Failed to retrieve attendance. Please try again.");
+        }
+    }
+
     private void fetchSchedule(String chatId) {
         try {
             String scheduleUrl = "https://my.sdu.edu.kz/index.php?mod=course_reg"; // URL for schedule
@@ -117,27 +178,22 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
     }
 
     private String parseScheduleHtml(Document document) {
-        // Map to hold schedule data organized by day
         Map<String, StringBuilder> scheduleByDay = new HashMap<>();
         String[] days = {"Mo", "Tu", "We", "Th", "Fr", "Sa"};
 
-        // Initialize the map with empty builders for each day
         for (String day : days) {
             scheduleByDay.put(day, new StringBuilder(day + ":\n"));
         }
 
-        // Find the schedule rows
         Elements timeRows = document.select("tr[align=center]");
 
         for (Element row : timeRows) {
-            // Extract the time slot (e.g., "08:30\n09:20")
             Element timeCell = row.selectFirst("td[style]");
             String timeSlot = timeCell != null ? timeCell.text().replace("\n", " - ") : "";
 
-            // Extract cells for each day
             Elements dayCells = row.select("td.clsTd");
 
-            for (int i = 1; i < dayCells.size(); i++) { // Start from index 1 to skip the time slot column
+            for (int i = 1; i < dayCells.size(); i++) {
                 String day = days[i - 1];
                 Element cell = dayCells.get(i);
                 Element courseDiv = cell.selectFirst("div.inbasket");
@@ -149,7 +205,6 @@ public class TelegramBotHandler extends TelegramLongPollingBot {
             }
         }
 
-        // Combine all schedules by day into a single string
         StringBuilder sortedSchedule = new StringBuilder();
         for (String day : days) {
             sortedSchedule.append(scheduleByDay.get(day).toString()).append("\n");
